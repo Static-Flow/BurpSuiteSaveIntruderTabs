@@ -6,6 +6,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.io.*;
 import java.net.MalformedURLException;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -100,7 +101,8 @@ public final class Utilities {
             if(frame.isVisible() && frame.getTitle().startsWith(("Burp Suite")))
             {
                 //return the project name
-                return frame.getTitle().split("-")[1].trim();
+                String[] projectNamePieces = frame.getTitle().split("-");
+                return String.join("-",Arrays.copyOfRange(projectNamePieces, 1, projectNamePieces.length-1));
             }
         }
         return "";
