@@ -6,9 +6,9 @@ import javax.swing.*;
 import java.awt.*;
 import java.io.*;
 import java.net.MalformedURLException;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Objects;
-import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -58,6 +58,10 @@ public final class Utilities {
                         intruderAttack.getHttpService().getPort(),
                         intruderAttack.getHttpService().getProtocol().equals("https"),
                         intruderAttack.getRequestTemplate());
+                ExtensionState.getInstance().getIntruderTabsComponent().setTitleAt(
+                        ExtensionState.getInstance().getIntruderTabsComponent().getSelectedIndex(),
+                        Paths.get(file).getFileName().toString()
+                    );
                 in.close();
             } catch (IOException | ClassNotFoundException i) {
                 ExtensionState.getInstance().getCallbacks().printError(i.toString());
@@ -67,7 +71,7 @@ public final class Utilities {
 
     /**
      * This method calls {@link #clearExportFolder()} to remove the previously exported Intruder tabs,
-     * then calls {@link #exportIntruderTab(Component) exportIntruderTab} to convert each Intruder tab to a {@link IntruderAttack},
+     * then calls {@link #exportIntruderTab(int) exportIntruderTab} to convert each Intruder tab to a {@link IntruderAttack},
      * serialize it, and write it to the directory specified by {@link #getIntruderTabFilePath()}.
      */
     public static void exportIntruderTabs() {
@@ -83,7 +87,7 @@ public final class Utilities {
         for(int index = 0; index < ExtensionState.getInstance().getIntruderTabsComponent().getTabCount(); index++) {
             try {
                 //give the tab to exportIntruderTab for exporting
-                exportIntruderTab(ExtensionState.getInstance().getIntruderTabsComponent().getComponentAt(index));
+                exportIntruderTab(index);
             } catch (MalformedURLException e) {
                 ExtensionState.getInstance().getCallbacks().printError(e.toString());
             }
@@ -146,10 +150,12 @@ public final class Utilities {
     /**
      * This method performs the conversion of an Intruder tab into a {@link IntruderAttack} POJO, serialization, and storage into the directory specified by
      * {@link #getIntruderTabFilePath()}
-     * @param intruderAttackComponent The Intruder Tab Swing component
+     * @param index The Intruder Tab Swing component index
      * @throws MalformedURLException if the Target string for the Intruder Tab extracted by {@link #getIntruderTabTarget(Component) getIntruderTabTarget} is invalid
      */
-    private static void exportIntruderTab(Component intruderAttackComponent) throws MalformedURLException {
+    private static void exportIntruderTab(int index) throws MalformedURLException {
+        Component intruderAttackComponent = ExtensionState.getInstance().getIntruderTabsComponent().getComponentAt(index);
+        String intruderTabTitle =  ExtensionState.getInstance().getIntruderTabsComponent().getTitleAt(index);
         //build a new IntruderAttack from the Intruder tab's Target and Request
         IntruderAttack intruderAttack = new IntruderAttack(
                 new HttpService(Utilities.getIntruderTabTarget(intruderAttackComponent)),
@@ -157,7 +163,7 @@ public final class Utilities {
         //don't save the default one
         if(!(new String(intruderAttack.getRequestTemplate())).startsWith("POST /example")) {
             //attempt to create a file for this serialized IntruderAttack
-            try (FileOutputStream fileOut = new FileOutputStream(Utilities.getIntruderTabFilePath() + UUID.randomUUID())) {
+            try (FileOutputStream fileOut = new FileOutputStream(Utilities.getIntruderTabFilePath() + intruderTabTitle)) {
                 ObjectOutputStream objectOut = new ObjectOutputStream(fileOut);
                 objectOut.writeObject(intruderAttack);
                 objectOut.close();
