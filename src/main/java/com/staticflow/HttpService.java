@@ -1,6 +1,8 @@
 package main.java.com.staticflow;
 
 import burp.IHttpService;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.io.Serializable;
 import java.net.MalformedURLException;
@@ -35,6 +37,19 @@ public class HttpService implements IHttpService, Serializable {
             //If no port is specified, use the default port for the URL protocol
            this.port = url.getDefaultPort();
         }
+    }
+
+    /**
+     * Constructor for HttpService used by Jackson to deserialize from JSON to a Java POJO
+     * @param protocol URL protocol for this HttpService
+     * @param host host for this HttpService
+     * @param port port for this HttpService
+     */
+    @JsonCreator
+    public HttpService(@JsonProperty("protocol") String protocol, @JsonProperty("host") String host, @JsonProperty("port") int port) {
+        this.protocol = protocol;
+        this.host = host;
+        this.port = port;
     }
 
     @Override

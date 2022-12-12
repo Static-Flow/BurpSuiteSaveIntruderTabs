@@ -2,6 +2,8 @@ package main.java.com.staticflow;
 
 import burp.IHttpService;
 import burp.IIntruderAttack;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.io.Serializable;
 
@@ -15,8 +17,14 @@ public class IntruderAttack implements IIntruderAttack, Serializable {
     private final HttpService service;
     private final byte[] requestTemplate;
 
-    public IntruderAttack(IHttpService service, byte[] requestTemplate) {
-        this.service = (HttpService) service;
+    /**
+     * Constructor for an IntruderAttack which represents the data required to build an Intruder tab in Burp Suite
+     * @param service The {@link HttpService} which holds the protocol, host, and port the Intruder attack is for
+     * @param requestTemplate The bytes of the Intruder Request
+     */
+    @JsonCreator
+    public IntruderAttack(@JsonProperty("httpService") HttpService service, @JsonProperty("requestTemplate") byte[] requestTemplate) {
+        this.service = service;
         this.requestTemplate = requestTemplate;
     }
 

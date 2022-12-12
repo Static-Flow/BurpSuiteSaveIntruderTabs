@@ -1,5 +1,6 @@
 package main.java.com.staticflow;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.commons.io.FileUtils;
 
 import javax.swing.*;
@@ -45,13 +46,13 @@ public final class Utilities {
      */
     private static void importIntruderTabs(File directory) {
         //loop over every file in the supplied directory
+        ObjectMapper mapper = new ObjectMapper();
         for(String file : Stream.of(Objects.requireNonNull(directory.listFiles())).filter(file -> !file.isDirectory()).map(File::getAbsolutePath).collect(Collectors.toSet())) {
             ExtensionState.getInstance().getCallbacks().printOutput("Importing Intruder Tab");
             //attempt to load the file contents
             try (FileInputStream fileIn = new FileInputStream(file)) {
-                ObjectInputStream in = new ObjectInputStream(fileIn);
                 //unserialize the file into a IntruderAttack POJO
-                IntruderAttack intruderAttack = (IntruderAttack) in.readObject();
+                IntruderAttack intruderAttack = mapper.readValue(fileIn,IntruderAttack.class);
                 //import the IntruderAttack data into Intruder creating a new tab
                 ExtensionState.getInstance().getCallbacks().sendToIntruder(
                         intruderAttack.getHttpService().getHost(),
@@ -62,8 +63,7 @@ public final class Utilities {
                         ExtensionState.getInstance().getIntruderTabsComponent().getSelectedIndex(),
                         Paths.get(file).getFileName().toString()
                     );
-                in.close();
-            } catch (IOException | ClassNotFoundException i) {
+            } catch (IOException i) {
                 ExtensionState.getInstance().getCallbacks().printError(i.toString());
             }
         }
@@ -164,9 +164,8 @@ public final class Utilities {
         if(!(new String(intruderAttack.getRequestTemplate())).startsWith("POST /example")) {
             //attempt to create a file for this serialized IntruderAttack
             try (FileOutputStream fileOut = new FileOutputStream(Utilities.getIntruderTabFilePath() + intruderTabTitle)) {
-                ObjectOutputStream objectOut = new ObjectOutputStream(fileOut);
-                objectOut.writeObject(intruderAttack);
-                objectOut.close();
+                ObjectMapper mapper = new ObjectMapper();
+                mapper.writeValue(fileOut, intruderAttack);
                 ExtensionState.getInstance().getCallbacks().printOutput("Exported Intruder Tab successfully");
             } catch (Exception ex) {
                 ExtensionState.getInstance().getCallbacks().printError(ex.toString());
