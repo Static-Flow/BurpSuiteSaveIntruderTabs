@@ -1,6 +1,6 @@
 package main.java.com.staticflow;
 
-import burp.IBurpExtenderCallbacks;
+import burp.api.montoya.MontoyaApi;
 
 import javax.swing.*;
 import java.awt.*;
@@ -14,7 +14,7 @@ public class ExtensionState {
     private static ExtensionState state = null;
 
     // Burp Suite callback and helper APIs
-    private IBurpExtenderCallbacks callbacks;
+    private MontoyaApi callbacks;
 
     // Reference to the Intruder Tab JTabbedPane
     private final JTabbedPane intruderTabsComponent;
@@ -48,7 +48,7 @@ public class ExtensionState {
      * Getter for the Burp Suite callback and helper APIs
      * @return the Burp Suite callback and helper APIs
      */
-    IBurpExtenderCallbacks getCallbacks() {
+    MontoyaApi getCallbacks() {
         return callbacks;
     }
 
@@ -56,7 +56,7 @@ public class ExtensionState {
      * Setter for the Burp Suite callback and helper APIs
      * @param callbacks the callback and helper API reference given to us by Burp Suite
      */
-    void setCallbacks(IBurpExtenderCallbacks callbacks) {
+    void setCallbacks(MontoyaApi callbacks) {
         this.callbacks = callbacks;
     }
 }

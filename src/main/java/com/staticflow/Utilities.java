@@ -1,184 +1,135 @@
 package main.java.com.staticflow;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.commons.io.FileUtils;
+import burp.api.montoya.core.Marker;
+import burp.api.montoya.http.HttpService;
+import burp.api.montoya.http.message.requests.HttpRequest;
+import burp.api.montoya.persistence.PersistedList;
 
-import javax.swing.*;
-import java.awt.*;
-import java.io.*;
-import java.net.MalformedURLException;
-import java.nio.file.Paths;
-import java.util.Arrays;
-import java.util.Objects;
+import javax.swing.JTextArea;
+import javax.swing.JTextField;
+import java.awt.Component;
+import java.awt.Container;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.stream.IntStream;
 
 /**
  * Utility class which contains the various functionality for this extension
  */
 public final class Utilities {
 
+    private static final char INTRUDER_OFFSET = '§';
+    private static final String EXTENSION_PERSISTENCE_KEY = "SAVED_INTRUDER_TAB_NAMES";
+
     private Utilities() {}
 
     /**
-     * Called when the extension is loaded, this method first checks if the folder structure constructed by {@link #getIntruderTabFilePath} exists
-     * and creates it if it does not. It then calls {@link #importIntruderTabs} to walk the directory for serialized Intruder tabs to import.
+     * This method is called on Extension load and checks for any saved intruder tabs. It first checks for the {@link Utilities#EXTENSION_PERSISTENCE_KEY} key
+     * ,which is only present if there are saved Intruder tabs, and loads the names of all saved tabs via {@link Utilities#importIntruderTab(String)}
      */
     public static void loadExistingIntruderTabs() {
-        //Get the path to the directory containing the serialized Intruder tabs for this project
-        File serializedIntruderTabsDirectory = new File(getIntruderTabFilePath());
-        //if it doesn't exist
-        if (!serializedIntruderTabsDirectory.exists()) {
-            //if creating the directory structure failed
-            if( !serializedIntruderTabsDirectory.mkdirs() ) {
-                ExtensionState.getInstance().getCallbacks().printError("Could not create export directory");
-                return;
-            }
+        if( ExtensionState.getInstance().getCallbacks().persistence().extensionData().stringListKeys().contains(EXTENSION_PERSISTENCE_KEY)) {
+            ExtensionState.getInstance().getCallbacks().persistence().extensionData().getStringList(EXTENSION_PERSISTENCE_KEY).forEach(Utilities::importIntruderTab);
         }
-        //import all serialized Intruder tabs in the directory
-        importIntruderTabs(serializedIntruderTabsDirectory);
     }
 
     /**
-     * This method loops through every serialized {@link IntruderAttack}  in the supplied directory and converts in back into a {@link IntruderAttack} POJO
-     * and imports it into Intruder.
-     * @param directory Path to serialized {@link IntruderAttack IntruderAttacks}
+     * This method imports each saved Intruder tab identified by {@link Utilities#loadExistingIntruderTabs()}. It takes the intruder tab name, uses it as a
+     * key to retrieve the stored {@link HttpRequest} from the persistence API, sends the {@link HttpRequest} to the Intruder, and updates the new Intruder
+     * tab with its old name.
+     * @param intruderTabName The name of the Intruder tab to load
      */
-    private static void importIntruderTabs(File directory) {
-        //loop over every file in the supplied directory
-        ObjectMapper mapper = new ObjectMapper();
-        for(String file : Stream.of(Objects.requireNonNull(directory.listFiles())).filter(file -> !file.isDirectory()).map(File::getAbsolutePath).collect(Collectors.toSet())) {
-            ExtensionState.getInstance().getCallbacks().printOutput("Importing Intruder Tab");
-            //attempt to load the file contents
-            try (FileInputStream fileIn = new FileInputStream(file)) {
-                //unserialize the file into a IntruderAttack POJO
-                IntruderAttack intruderAttack = mapper.readValue(fileIn,IntruderAttack.class);
-                //import the IntruderAttack data into Intruder creating a new tab
-                ExtensionState.getInstance().getCallbacks().sendToIntruder(
-                        intruderAttack.getHttpService().getHost(),
-                        intruderAttack.getHttpService().getPort(),
-                        intruderAttack.getHttpService().getProtocol().equals("https"),
-                        intruderAttack.getRequestTemplate());
-                ExtensionState.getInstance().getIntruderTabsComponent().setTitleAt(
-                        ExtensionState.getInstance().getIntruderTabsComponent().getSelectedIndex(),
-                        Paths.get(file).getFileName().toString()
-                    );
-            } catch (IOException i) {
-                ExtensionState.getInstance().getCallbacks().printError(i.toString());
-            }
-        }
+    private static void importIntruderTab(String intruderTabName) {
+        ExtensionState.getInstance().getCallbacks().logging().logToOutput("importing: "+intruderTabName);
+        HttpRequest httpRequest = ExtensionState.getInstance().getCallbacks().persistence().extensionData().getHttpRequest(intruderTabName);
+        ExtensionState.getInstance().getCallbacks().intruder().sendToIntruder(httpRequest);
+        ExtensionState.getInstance().getIntruderTabsComponent().setTitleAt(
+            ExtensionState.getInstance().getIntruderTabsComponent().getSelectedIndex(),
+            intruderTabName
+        );
     }
 
     /**
-     * This method calls {@link #clearExportFolder()} to remove the previously exported Intruder tabs,
-     * then calls {@link #exportIntruderTab(int) exportIntruderTab} to convert each Intruder tab to a {@link IntruderAttack},
-     * serialize it, and write it to the directory specified by {@link #getIntruderTabFilePath()}.
+     * This method exports all non-default Intruder tabs using the Persistence API. The intruder tab names are used as keys and the values for each tab
+     * are created by {@link Utilities#exportIntruderTab(int)}. The following steps are taken:<br>
+     *      1. A stream of ints the size of the number of Intruder tabs is created <Br>
+     *      2. Each int, corresponding to an Intruder tab index is passed to {@link Utilities#exportIntruderTab(int)} <br>
+     *      3. If {@link Utilities#exportIntruderTab(int)} returns True, retrieve the title of the Intruder tab and store it into `intruderTabTitles` <br>
+     *      4. If {@link Utilities#exportIntruderTab(int)} returns False, ignore the corresponding Intruder tab <br>
+     *      5. Persist the list of Intruder tab keys via the Montoya Persistence APIs <Br>
      */
     public static void exportIntruderTabs() {
-        try {
-            //attempt to clear the previously exported Intruder tabs from the last time this Burp Suite project was closed
-            clearExportFolder();
-        } catch (IOException e) {
-            //if we fail to clear the export folder the method aborts
-            ExtensionState.getInstance().getCallbacks().printOutput("Couldn't clean export directory: "+e);
-            return;
-        }
-        //for each Intruder tab
-        for(int index = 0; index < ExtensionState.getInstance().getIntruderTabsComponent().getTabCount(); index++) {
-            try {
-                //give the tab to exportIntruderTab for exporting
-                exportIntruderTab(index);
-            } catch (MalformedURLException e) {
-                ExtensionState.getInstance().getCallbacks().printError(e.toString());
-            }
-        }
-    }
-
-    /**
-     * Get the name of the Burp Suite project by extracting it from the main title
-     * @return the name of the Burp Suite Project
-     */
-    private static String getBurpProjectName() {
-        //For all the Swing frames
-        for(Frame frame : Frame.getFrames()) {
-            //If its title starts with Burp Suite
-            if(frame.isVisible() && frame.getTitle().startsWith(("Burp Suite")))
-            {
-                //return the project name
-                String[] projectNamePieces = frame.getTitle().split("-");
-                return String.join("-",Arrays.copyOfRange(projectNamePieces, 1, projectNamePieces.length-1));
-            }
-        }
-        return "";
+        PersistedList<String> intruderTabTitles = PersistedList.persistedStringList();
+        intruderTabTitles.addAll(IntStream.range(0, ExtensionState.getInstance().getIntruderTabsComponent().getTabCount())
+                .filter(Utilities::exportIntruderTab)
+                .mapToObj(i -> ExtensionState.getInstance().getIntruderTabsComponent().getTitleAt(i))
+                .collect(Collectors.toList()));
+        ExtensionState.getInstance().getCallbacks().logging().logToOutput("Exporting tabs: "+ new ArrayList<>(intruderTabTitles));
+        ExtensionState.getInstance().getCallbacks().persistence().extensionData().setStringList(EXTENSION_PERSISTENCE_KEY, intruderTabTitles);
     }
 
     /**
      * This method walks the Swing component tree of an Intruder tab using
-     * {@link main.java.com.staticflow.BurpGuiControl#getComponentAtPath(Container, int[]) getComponentAtPath}
+     * {@link main.java.com.staticflow.BurpGuiControl#findFirstComponentOfType}
      * to find the JTextField containing the Target string
-     * @param intruderTabComponent the Intruder tab Swing Component
-     * @return the target string of the Intruder tab
+     * @param currentIntruderTabComponent The Intruder tab component to retrieve the target URL from
+     * @return the target text of the Intruder tab
      */
-    private static String getIntruderTabTarget(Component intruderTabComponent) {
-        return ((JTextField) BurpGuiControl.getComponentAtPath(
-                (Container) intruderTabComponent,
-                new int[]{0,1, 2, 0, 1})).getText();
+    private static String getIntruderTabTarget(Component currentIntruderTabComponent) {
+        return ((JTextField) BurpGuiControl.findFirstComponentOfType((Container) currentIntruderTabComponent, JTextField.class)).getText();
     }
 
     /**
      * This method walks the Swing component tree of an Intruder tab using
-     * {@link main.java.com.staticflow.BurpGuiControl#getComponentAtPath(Container, int[]) getComponentAtPath}
+     * {@link main.java.com.staticflow.BurpGuiControl#findFirstComponentOfType}
      * to find the JTextArea containing the Intruder request with its markers
-     * @param intruderTabComponent the Intruder tab Swing Component
+     * @param currentIntruderTabComponent The Intruder tab component to retrieve the request text from
      * @return the JTextArea of the Intruder tab containing the request
      */
-    private static JTextArea getIntruderTabTextArea(Component intruderTabComponent) {
-        return (JTextArea) BurpGuiControl.getComponentAtPath(
-                (Container) intruderTabComponent,
-                new int[]{0, 1, 2, 8, 1, 0, 0});
+    private static JTextArea getIntruderTabTextArea(Component currentIntruderTabComponent) {
+
+        List<Component> textAreas = BurpGuiControl.findAllComponentsOfType((Container) currentIntruderTabComponent, JTextArea.class);
+        return (JTextArea) textAreas.get(1);
 
     }
 
     /**
-     * This method returns the directory where the serialized {@link IntruderAttack IntruderAttacks} for the current Burp Suite project context are stored
-     * @return the directory where the serialized {@link IntruderAttack IntruderAttacks} for the current Burp Suite project context are stored
+     * This method, called by {@link Utilities#exportIntruderTabs()}, saves the Intruder data at the corresponding tab index using the following steps:<br>
+     *      1. The title for the tab is retrieved<br>
+     *      2. The text contents of the Intruder tab are retrieved <br>
+     *      3. If the Intruder tab is the default on (a POST to /example on the host http://localhost:80), ignore it and return False <br>
+     *      4. If it isn't the default one, get a list of all offsets by searching the Intruder text for the {@link Utilities#INTRUDER_OFFSET} character<br>
+     *      5. Convert the list of offsets into {@link Marker} pairs
+     *      6. Build a new {@link HttpRequest} from the Intruder request text, a new {@link HttpService} built from the Intruder target url, and computed {@link Marker Markers}<br>
+     *      7. Store it within the Project using the Persistence APIs with the Intruder tab title as the key
+     * @param index The Intruder Tab index
+     * @return True if it successfully exported, false otherwise
      */
-    private static String getIntruderTabFilePath() {
-        return System.getProperty("user.home")+File.separator+".BurpSuiteSaveIntruderTabs"+File.separator+getBurpProjectName()+ File.separator;
-    }
-
-    /**
-     * This method performs the conversion of an Intruder tab into a {@link IntruderAttack} POJO, serialization, and storage into the directory specified by
-     * {@link #getIntruderTabFilePath()}
-     * @param index The Intruder Tab Swing component index
-     * @throws MalformedURLException if the Target string for the Intruder Tab extracted by {@link #getIntruderTabTarget(Component) getIntruderTabTarget} is invalid
-     */
-    private static void exportIntruderTab(int index) throws MalformedURLException {
-        Component intruderAttackComponent = ExtensionState.getInstance().getIntruderTabsComponent().getComponentAt(index);
+    private static boolean exportIntruderTab(int index) {
+        Component currentIntruderComponent = ExtensionState.getInstance().getIntruderTabsComponent().getComponentAt(index);
         String intruderTabTitle =  ExtensionState.getInstance().getIntruderTabsComponent().getTitleAt(index);
-        //build a new IntruderAttack from the Intruder tab's Target and Request
-        IntruderAttack intruderAttack = new IntruderAttack(
-                new HttpService(Utilities.getIntruderTabTarget(intruderAttackComponent)),
-                Utilities.getIntruderTabTextArea(intruderAttackComponent).getText().getBytes());
-        //don't save the default one
-        if(!(new String(intruderAttack.getRequestTemplate())).startsWith("POST /example")) {
-            //attempt to create a file for this serialized IntruderAttack
-            try (FileOutputStream fileOut = new FileOutputStream(Utilities.getIntruderTabFilePath() + intruderTabTitle)) {
-                ObjectMapper mapper = new ObjectMapper();
-                mapper.writeValue(fileOut, intruderAttack);
-                ExtensionState.getInstance().getCallbacks().printOutput("Exported Intruder Tab successfully");
-            } catch (Exception ex) {
-                ExtensionState.getInstance().getCallbacks().printError(ex.toString());
+        String intruderTarget = getIntruderTabTarget(currentIntruderComponent);
+        String intruderText = Utilities.getIntruderTabTextArea(currentIntruderComponent).getText();
+        //don't save the default one, sorry if you're actually trying to run an intruder attack against this endpoint while using this extension
+        if(!intruderText.startsWith("POST /example") && !intruderTarget.equals("http://localhost:80")) {
+            List<Integer> intruderOffsetList = IntStream.range(0, intruderText.length())
+                    .filter(i -> intruderText.charAt(i) == INTRUDER_OFFSET).boxed()
+                    .collect(Collectors.toList());
+
+            ArrayList<Marker> markers = new ArrayList<>();
+            for (int i = 1; i < intruderOffsetList.size(); i += 2) {
+                Marker marker = Marker.marker(intruderOffsetList.get(i - 1), intruderOffsetList.get(i));
+                markers.add(marker);
             }
+
+            HttpRequest httpRequest = HttpRequest.httpRequest(intruderText);
+            httpRequest = httpRequest.withService(HttpService.httpService(intruderTarget));
+            httpRequest = httpRequest.withMarkers(markers);
+            ExtensionState.getInstance().getCallbacks().logging().logToOutput("Exporting intruder request: "+httpRequest);
+            ExtensionState.getInstance().getCallbacks().persistence().extensionData().setHttpRequest(intruderTabTitle,httpRequest);
+            return true;
         }
+        return false;
     }
-
-    /**
-     * This method clears the export directory specified by {@link #getIntruderTabFilePath()} to prepare it for adding the new exported Intruder tabs
-     * @throws IOException if FileUtils fails to clear the directory
-     */
-    private static void clearExportFolder() throws IOException {
-        FileUtils.cleanDirectory(new File(getIntruderTabFilePath()));
-    }
-
 }

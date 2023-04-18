@@ -1,8 +1,8 @@
 package main.java.com.staticflow;
 
-import burp.IBurpExtender;
-import burp.IBurpExtenderCallbacks;
-import burp.IExtensionStateListener;
+import burp.api.montoya.BurpExtension;
+import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.extension.ExtensionUnloadingHandler;
 
 /**
  * This extension provides a means of saving Intruder tabs when closing Burp Suite.
@@ -11,16 +11,7 @@ import burp.IExtensionStateListener;
  * When Burp Suite is reopened again the serialized Intruder tabs that match the project
  * are unserialized and injected back into the Intruder tab.
  */
-public class BurpSuiteSaveIntruderTabs implements IBurpExtender, IExtensionStateListener {
-    @Override
-    public void registerExtenderCallbacks(IBurpExtenderCallbacks iBurpExtenderCallbacks) {
-        //Hand callback reference to the ExtensionState singleton for easy access throughout extension code
-        ExtensionState.getInstance().setCallbacks(iBurpExtenderCallbacks);
-        //Check for export folder existence and load any Intruder tabs that match this project
-        Utilities.loadExistingIntruderTabs();
-        //Watch for extension unloading
-        iBurpExtenderCallbacks.registerExtensionStateListener(this);
-    }
+public class BurpSuiteSaveIntruderTabs implements BurpExtension, ExtensionUnloadingHandler {
 
     /**
       When the extension unloads all current Intruder tabs are serialized and stored in the
@@ -34,5 +25,12 @@ public class BurpSuiteSaveIntruderTabs implements IBurpExtender, IExtensionState
     @Override
     public void extensionUnloaded() {
         Utilities.exportIntruderTabs();
+    }
+
+    @Override
+    public void initialize(MontoyaApi api) {
+        api.extension().registerUnloadingHandler(this);
+        ExtensionState.getInstance().setCallbacks(api);
+        Utilities.loadExistingIntruderTabs();
     }
 }
